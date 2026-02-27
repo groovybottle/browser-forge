@@ -1,4 +1,5 @@
 CDP_HOST = "127.0.0.1"
 CDP_PORT = 18800
 OUTPUT_ROOT = "./output"
+SERVER_HOST = "0.0.0.0"  # 외부 접속 허용
 SERVER_PORT = 19922

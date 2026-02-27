@@ -3,7 +3,7 @@ import os
 import uvicorn
 from fastapi import FastAPI
 
-from config import OUTPUT_ROOT, SERVER_PORT
+from config import OUTPUT_ROOT, SERVER_PORT, SERVER_HOST
 from routes.health import router as health_router
 from routes.image import router as image_router
 
@@ -20,4 +20,4 @@ async def startup_event():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=SERVER_PORT)
+    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)
