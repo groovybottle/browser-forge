@@ -245,19 +245,24 @@ class GeminiNanoProvider(BaseImageProvider):
             await cdp(ws, "Runtime.evaluate", {"expression": new_chat_js})
             await asyncio.sleep(3)  # 새 채팅 화면 완전 로드 대기
 
-            # Click "이미지 만들기" button
+            # Click "이미지 만들기" button (activate image generation mode)
             # aria-label: '🍌 이미지 만들기, 버튼, 탭하여 도구 사용'
+            # If already active, aria-label contains '선택 해제' — skip click in that case
             img_gen_btn_js = """
             (function() {
                 const btns = document.querySelectorAll('button, [role="button"]');
                 for (const btn of btns) {
                     const aria = btn.getAttribute('aria-label') || '';
                     const text = btn.textContent.trim();
-                    if (aria.includes('이미지 만들기') || text.includes('이미지 만들기') ||
-                        aria.includes('Create image') || aria.includes('Generate image')) {
-                        btn.click();
-                        return 'image_btn_clicked:' + aria.substring(0, 60);
+                    const hasImageCreate = aria.includes('이미지 만들기') || text.includes('이미지 만들기') ||
+                                          aria.includes('Create image') || aria.includes('Generate image');
+                    if (!hasImageCreate) continue;
+                    // If '선택 해제' in aria → already active, skip click
+                    if (aria.includes('선택 해제') || aria.includes('deselect') || aria.includes('Deselect')) {
+                        return 'image_btn_already_active:' + aria.substring(0, 60);
                     }
+                    btn.click();
+                    return 'image_btn_clicked:' + aria.substring(0, 60);
                 }
                 return 'image_gen_btn_not_found';
             })()
@@ -267,30 +272,68 @@ class GeminiNanoProvider(BaseImageProvider):
             print(f"[gemini_nano] image btn: {img_btn_val}", file=sys.stderr)
             if "not_found" in img_btn_val:
                 print("[gemini_nano] WARNING: '이미지 만들기' button not found!", file=sys.stderr)
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(2.5)  # Wait for image mode UI (mode selector) to appear
 
-            # Click "PRO" model button (text='PRO', for Imagen 3 Pro quality)
-            pro_btn_js = """
+            # Open "모드 선택" dropdown first (shows "빠른 모드" by default)
+            mode_dropdown_js = """
             (function() {
-                const candidates = document.querySelectorAll('button, [role="button"], [role="tab"], [role="option"], [role="radio"]');
-                for (const btn of candidates) {
-                    const text = btn.textContent.trim();
+                const btns = document.querySelectorAll('button');
+                for (const btn of btns) {
                     const aria = btn.getAttribute('aria-label') || '';
-                    if (text === 'PRO' || text === 'Pro' || aria.toLowerCase().includes('pro')) {
-                        const selected = btn.getAttribute('aria-selected') || btn.getAttribute('aria-pressed') || btn.getAttribute('aria-checked') || '';
-                        if (selected === 'true') return 'pro_already_selected';
+                    const text = btn.textContent.trim();
+                    if (aria === '모드 선택 도구 열기' || aria.includes('모드 선택') || text === '빠른 모드' || text === 'Fast mode') {
                         btn.click();
-                        return 'pro_clicked:' + text;
+                        return 'mode_dropdown_clicked:' + aria + ' | ' + text.substring(0, 30);
                     }
                 }
-                return 'pro_btn_not_found';
+                return 'mode_dropdown_not_found';
             })()
             """
-            result = await cdp(ws, "Runtime.evaluate", {"expression": pro_btn_js})
+            result = await cdp(ws, "Runtime.evaluate", {"expression": mode_dropdown_js})
+            mode_val = result.get("result", {}).get("result", {}).get("value", "")
+            print(f"[gemini_nano] mode dropdown: {mode_val}", file=sys.stderr)
+            await asyncio.sleep(1.2)  # Wait for dropdown to open
+
+            # Click "Pro" option inside the dropdown (mat-mdc-menu-item with 'Pro' text)
+            pro_option_js = """
+            (function() {
+                // Look in menuitemradio buttons (mat-menu items)
+                const menuItems = document.querySelectorAll('button[role="menuitemradio"], .mat-mdc-menu-item, [role="menuitem"]');
+                for (const btn of menuItems) {
+                    const text = btn.textContent.trim();
+                    // Match 'Pro' but NOT '빠른 모드' or 'Fast'
+                    if (text.toLowerCase().includes('pro') && !text.includes('빠른') && !text.toLowerCase().includes('fast')) {
+                        // Check if already selected
+                        const checked = btn.getAttribute('aria-checked') || btn.getAttribute('aria-selected') || '';
+                        if (checked === 'true') return 'pro_already_selected';
+                        btn.click();
+                        return 'pro_option_clicked:' + text.substring(0, 40);
+                    }
+                }
+                // Fallback: find any visible element with text 'Pro' or 'PRO' and click its clickable parent
+                const spans = document.querySelectorAll('span.mode-title');
+                for (const span of spans) {
+                    const text = span.textContent.trim();
+                    if (text === 'Pro' || text === 'PRO') {
+                        let el = span;
+                        for (let i = 0; i < 6; i++) {
+                            el = el.parentElement;
+                            if (!el) break;
+                            if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'menuitemradio') {
+                                el.click();
+                                return 'pro_parent_clicked:' + text;
+                            }
+                        }
+                    }
+                }
+                return 'pro_option_not_found';
+            })()
+            """
+            result = await cdp(ws, "Runtime.evaluate", {"expression": pro_option_js})
             pro_val = result.get("result", {}).get("result", {}).get("value", "")
-            print(f"[gemini_nano] pro btn: {pro_val}", file=sys.stderr)
-            if "clicked" in pro_val:
-                await asyncio.sleep(1.0)
+            print(f"[gemini_nano] pro option: {pro_val}", file=sys.stderr)
+            if "clicked" in pro_val or "selected" in pro_val:
+                await asyncio.sleep(0.8)
 
             # Type prompt
             escaped = prompt.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
