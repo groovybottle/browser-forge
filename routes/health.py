@@ -1,15 +1,12 @@
-import json
 import urllib.request
 from datetime import datetime
 
 from fastapi import APIRouter
 
 from config import CDP_HOST, CDP_PORT
-from providers.gemini_nano import GeminiNanoProvider
+from routes.image import PROVIDERS
 
 router = APIRouter()
-
-_gemini = GeminiNanoProvider()
 
 
 def _cdp_connected() -> bool:
@@ -25,13 +22,14 @@ def health():
     return {
         "status": "ok",
         "server": "browser-forge",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "time": datetime.now().isoformat(),
         "cdp": {
             "connected": _cdp_connected(),
             "port": CDP_PORT,
         },
         "providers": {
-            "gemini_nano": _gemini.check_tab(),
+            name: provider.check_tab()
+            for name, provider in PROVIDERS.items()
         },
     }
