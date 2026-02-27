@@ -15,6 +15,11 @@ SKILL_DIR = os.path.expanduser(
 )
 GENERATE_SCRIPT = os.path.join(SKILL_DIR, "scripts", "generate_image.py")
 
+# uv absolute path (LaunchAgent may not have /opt/homebrew/bin in PATH)
+UV_BIN = "/opt/homebrew/bin/uv"
+if not os.path.exists(UV_BIN):
+    UV_BIN = "uv"  # fallback to PATH
+
 
 class NanoBananaProvider(BaseImageProvider):
     @property
@@ -32,7 +37,7 @@ class NanoBananaProvider(BaseImageProvider):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
         cmd = [
-            "uv",
+            UV_BIN,
             "run",
             GENERATE_SCRIPT,
             "--prompt", prompt,
