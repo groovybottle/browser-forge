@@ -54,7 +54,6 @@ async def generate_image(req: GenerateRequest):
 
     async with lock:
         try:
-            # Pass extra kwargs for nano_banana
             if req.provider == "nano_banana":
                 success = await provider.generate(
                     req.prompt,
@@ -62,6 +61,12 @@ async def generate_image(req: GenerateRequest):
                     input_images=req.input_images,
                     aspect_ratio=req.aspect_ratio or "1:1",
                     resolution=req.resolution or "2K",
+                )
+            elif req.provider == "gemini_nano":
+                success = await provider.generate(
+                    req.prompt,
+                    output_path,
+                    input_images=req.input_images,
                 )
             else:
                 success = await provider.generate(req.prompt, output_path)

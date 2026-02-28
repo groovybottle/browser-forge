@@ -201,7 +201,7 @@ class GeminiNanoProvider(BaseImageProvider):
     def provider_name(self) -> str:
         return "gemini_nano"
 
-    async def generate(self, prompt: str, output_path: str) -> bool:
+    async def generate(self, prompt: str, output_path: str, input_images: list[str] | None = None) -> bool:
         tab = ensure_gemini_tab(wait_sec=15.0)
         if not tab:
             print("[gemini_nano] cannot open Gemini tab", file=sys.stderr)
@@ -334,6 +334,58 @@ class GeminiNanoProvider(BaseImageProvider):
             print(f"[gemini_nano] pro option: {pro_val}", file=sys.stderr)
             if "clicked" in pro_val or "selected" in pro_val:
                 await asyncio.sleep(0.8)
+
+            # Attach reference images via ClipboardEvent paste injection
+            if input_images:
+                print(f"[gemini_nano] attaching {len(input_images)} reference image(s)...", file=sys.stderr)
+                for img_path in input_images:
+                    abs_path = os.path.abspath(img_path)
+                    if not os.path.exists(abs_path):
+                        print(f"[gemini_nano] WARNING: image not found: {abs_path}", file=sys.stderr)
+                        continue
+
+                    # Read image and encode as base64
+                    with open(abs_path, "rb") as f:
+                        img_b64 = base64.b64encode(f.read()).decode()
+
+                    ext = os.path.splitext(abs_path)[1].lower()
+                    mime = {"jpg": "image/jpeg", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                            ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif"}.get(ext, "image/png")
+                    fname = os.path.basename(abs_path)
+
+                    paste_js = f"""
+                    (async function() {{
+                        try {{
+                            const b64 = "{img_b64}";
+                            const bytes = atob(b64);
+                            const arr = new Uint8Array(bytes.length);
+                            for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+                            const blob = new Blob([arr], {{type: '{mime}'}});
+                            const file = new File([blob], '{fname}', {{type: '{mime}'}});
+
+                            const dt = new DataTransfer();
+                            dt.items.add(file);
+
+                            const editor = document.querySelector('rich-textarea') ||
+                                           document.querySelector('[contenteditable="true"]');
+                            if (!editor) return 'editor_not_found';
+
+                            const pasteEvent = new ClipboardEvent('paste', {{
+                                clipboardData: dt,
+                                bubbles: true,
+                                cancelable: true
+                            }});
+                            editor.dispatchEvent(pasteEvent);
+                            return 'paste_ok:{fname}';
+                        }} catch(e) {{
+                            return 'paste_error:' + e.message;
+                        }}
+                    }})()
+                    """
+                    result = await cdp(ws, "Runtime.evaluate", {"expression": paste_js, "awaitPromise": True}, timeout=15)
+                    paste_val = result.get("result", {}).get("result", {}).get("value", "")
+                    print(f"[gemini_nano] image paste: {paste_val}", file=sys.stderr)
+                    await asyncio.sleep(1.5)  # Wait for thumbnail to render
 
             # Type prompt
             escaped = prompt.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
